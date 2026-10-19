@@ -8,9 +8,18 @@ import java.util.List;
 public class Budget {
 
     private final List<Category> categories = new ArrayList<>();
+    private String currency = ""; // shown after every amount, e.g. "HUF"
 
     public List<Category> getCategories() {
         return categories;
+    }
+
+    public String getCurrency() {
+        return currency;
+    }
+
+    public void setCurrency(String currency) {
+        this.currency = currency;
     }
 
     public boolean hasCategory(String name) {

@@ -26,6 +26,8 @@ import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingConstants;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableCellRenderer;
 
 /** The main window: categories on the left, transactions of the selected category on the right. */
@@ -40,6 +42,7 @@ public class BudgetFrame extends JFrame {
     private final JTable transactionTable = new JTable(tableModel);
     private final JLabel categoryTotalLabel = new JLabel();
     private final JLabel netTotalLabel = new JLabel();
+    private final JTextField currencyField = new JTextField(6);
 
     public BudgetFrame(Budget budget, Path dataFile) {
         super("Budget Tracker");
@@ -53,8 +56,11 @@ public class BudgetFrame extends JFrame {
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, buildCategoryPanel(), buildTransactionPanel());
         split.setDividerLocation(250);
 
-        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        bottom.add(netTotalLabel);
+        JPanel bottom = new JPanel(new BorderLayout());
+        JPanel netPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        netPanel.add(netTotalLabel);
+        bottom.add(netPanel, BorderLayout.CENTER);
+        bottom.add(buildCurrencyPanel(), BorderLayout.EAST);
 
         add(split, BorderLayout.CENTER);
         add(bottom, BorderLayout.SOUTH);
@@ -139,6 +145,38 @@ public class BudgetFrame extends JFrame {
         panel.add(new JScrollPane(transactionTable), BorderLayout.CENTER);
         panel.add(buttons, BorderLayout.SOUTH);
         return panel;
+    }
+
+    private JPanel buildCurrencyPanel() {
+        currencyField.setText(budget.getCurrency());
+        // Update the amounts on every keystroke, no button needed
+        currencyField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                currencyChanged();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                currencyChanged();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                currencyChanged();
+            }
+        });
+
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        panel.add(new JLabel("Currency:"));
+        panel.add(currencyField);
+        return panel;
+    }
+
+    private void currencyChanged() {
+        budget.setCurrency(currencyField.getText().trim());
+        transactionTable.repaint(); // the table shows amounts too
+        changed();
     }
 
     // ---------- Category actions ----------
@@ -345,7 +383,7 @@ public class BudgetFrame extends JFrame {
         JOptionPane.showMessageDialog(this, message);
     }
 
-    private static String summary(String label, BigDecimal budgetAmount, BigDecimal spent, BigDecimal remaining) {
+    private String summary(String label, BigDecimal budgetAmount, BigDecimal spent, BigDecimal remaining) {
         return label + ": " + formatMoney(budgetAmount) + "   Spent: " + formatMoney(spent)
                 + "   Remaining: " + formatMoney(remaining);
     }
@@ -359,12 +397,15 @@ public class BudgetFrame extends JFrame {
         }
     }
 
-    static String formatMoney(BigDecimal amount) {
-        return String.format("%,.2f", amount);
+    /** Formats an amount with two decimals and the currency, e.g. "1,500.00 HUF". */
+    private String formatMoney(BigDecimal amount) {
+        String text = String.format("%,.2f", amount);
+        return budget.getCurrency().isEmpty() ? text : text + " " + budget.getCurrency();
     }
 
     /** Shows each category as "Name  (remaining / budget amount)". */
-    private static class CategoryRenderer extends DefaultListCellRenderer {
+    // Not static, because it needs formatMoney(), which uses this window's budget
+    private class CategoryRenderer extends DefaultListCellRenderer {
         @Override
         public Component getListCellRendererComponent(JList<?> list, Object value, int index,
                                                       boolean isSelected, boolean cellHasFocus) {
@@ -376,7 +417,7 @@ public class BudgetFrame extends JFrame {
     }
 
     /** Shows amounts right-aligned with two decimals. */
-    private static class AmountRenderer extends DefaultTableCellRenderer {
+    private class AmountRenderer extends DefaultTableCellRenderer {
         AmountRenderer() {
             setHorizontalAlignment(SwingConstants.RIGHT);
         }

@@ -13,6 +13,7 @@ import java.util.List;
  * One line per item, fields separated by tabs:
  *
  * <pre>
+ * CURRENCY  HUF
  * CATEGORY  Groceries   400.00
  * TX        2026-10-19  12.50   Bread and milk
  * </pre>
@@ -25,6 +26,7 @@ public class BudgetStorage {
 
     public static void save(Budget budget, Path file) throws IOException {
         List<String> lines = new ArrayList<>();
+        lines.add("CURRENCY" + SEPARATOR + clean(budget.getCurrency()));
         for (Category c : budget.getCategories()) {
             lines.add("CATEGORY" + SEPARATOR + clean(c.getName()) + SEPARATOR + c.getBudgetAmount().toPlainString());
             for (Transaction t : c.getTransactions()) {
@@ -51,7 +53,9 @@ public class BudgetStorage {
             // limit -1 keeps empty trailing fields (e.g. an empty description)
             String[] parts = line.split(SEPARATOR, -1);
             try {
-                if (parts[0].equals("CATEGORY")) {
+                if (parts[0].equals("CURRENCY")) {
+                    budget.setCurrency(parts[1]);
+                } else if (parts[0].equals("CATEGORY")) {
                     // Files from older versions have no budget amount, so use 0
                     BigDecimal budgetAmount = parts.length > 2 ? new BigDecimal(parts[2]) : BigDecimal.ZERO;
                     current = new Category(parts[1], budgetAmount);

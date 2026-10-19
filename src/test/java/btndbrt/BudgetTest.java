@@ -56,9 +56,12 @@ public class BudgetTest {
     @Test
     public void saveAndLoadKeepsEverything(@TempDir Path dir) throws IOException {
         Path file = dir.resolve("budget.txt");
-        BudgetStorage.save(sampleBudget(), file);
+        Budget budget = sampleBudget();
+        budget.setCurrency("HUF");
+        BudgetStorage.save(budget, file);
         Budget loaded = BudgetStorage.load(file);
 
+        assertEquals("HUF", loaded.getCurrency());
         assertEquals(2, loaded.getCategories().size());
         Category food = loaded.getCategories().get(1);
         assertEquals("Food", food.getName());
@@ -76,6 +79,7 @@ public class BudgetTest {
         Category groceries = BudgetStorage.load(file).getCategories().get(0);
         assertEquals("Groceries", groceries.getName());
         assertEquals(0, groceries.getBudgetAmount().signum());
+        assertEquals("", BudgetStorage.load(file).getCurrency());
     }
 
     @Test

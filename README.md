@@ -5,6 +5,7 @@ Transactions in a category are subtracted from its amount, so you see what is le
 The net budget is the sum of all category amounts.
 
 Data is saved automatically after every change to `~/budget-tracker.txt` (plain text, tab-separated).
+The currency (e.g. `HUF`) is typed into the field at the bottom right and is shown after every amount.
 
 ## Requirements
 
