@@ -1,8 +1,12 @@
 package btndbrt;
 
+import java.awt.AWTEvent;
 import java.awt.BorderLayout;
+import java.awt.Component;
 import java.awt.FlowLayout;
 import java.awt.GridLayout;
+import java.awt.Toolkit;
+import java.awt.event.ActionEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
@@ -13,6 +17,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
+import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.DefaultListModel;
@@ -30,8 +35,11 @@ import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
+import javax.swing.JViewport;
+import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -87,6 +95,7 @@ public class BudgetFrame extends JFrame {
         root.add(buildHeader(), BorderLayout.NORTH);
         root.add(tabs, BorderLayout.CENTER);
         setContentPane(root);
+        installClickAway(root);
 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(1150, 720);
@@ -170,8 +179,17 @@ public class BudgetFrame extends JFrame {
         categoryList.setBackground(ChartColors.SURFACE);
         categoryList.addMouseListener(new MouseAdapter() {
             @Override
+            public void mousePressed(MouseEvent e) {
+                // A JList selects the last row even when you click the empty space below it,
+                // so clear the selection if the click was not on a row
+                if (!isOnCategoryRow(e)) {
+                    categoryList.clearSelection();
+                }
+            }
+
+            @Override
             public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) {
+                if (e.getClickCount() == 2 && isOnCategoryRow(e)) {
                     editCategory();
                 }
             }
@@ -206,8 +224,15 @@ public class BudgetFrame extends JFrame {
         transactionTable.setFillsViewportHeight(true);
         transactionTable.addMouseListener(new MouseAdapter() {
             @Override
+            public void mousePressed(MouseEvent e) {
+                if (transactionTable.rowAtPoint(e.getPoint()) < 0) {
+                    transactionTable.clearSelection(); // clicked the empty space below the rows
+                }
+            }
+
+            @Override
             public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) {
+                if (e.getClickCount() == 2 && transactionTable.rowAtPoint(e.getPoint()) >= 0) {
                     editTransaction();
                 }
             }
@@ -265,6 +290,41 @@ public class BudgetFrame extends JFrame {
         budget.setCurrency(currencyField.getText().trim());
         transactionTable.repaint(); // the table shows amounts too
         changed();
+    }
+
+    /** True if the mouse event is on a row of the category list (not the empty space below). */
+    private boolean isOnCategoryRow(MouseEvent e) {
+        int index = categoryList.locationToIndex(e.getPoint());
+        return index >= 0 && categoryList.getCellBounds(index, index).contains(e.getPoint());
+    }
+
+    /**
+     * Swing keeps the focus (the highlighted outline) on the last button or field you clicked,
+     * even after you click somewhere empty. This moves the focus to the window background when you
+     * click an empty area, and lets Escape do the same and clear the selected transaction.
+     */
+    private void installClickAway(JPanel root) {
+        root.setFocusable(true); // so the background can take the focus
+
+        Toolkit.getDefaultToolkit().addAWTEventListener(event -> {
+            MouseEvent e = (MouseEvent) event;
+            Component clicked = e.getComponent();
+            boolean emptyArea = clicked instanceof JPanel || clicked instanceof JLabel || clicked instanceof JViewport;
+            if (e.getID() == MouseEvent.MOUSE_PRESSED && emptyArea
+                    && SwingUtilities.getWindowAncestor(clicked) == this) {
+                transactionTable.clearSelection();
+                root.requestFocusInWindow();
+            }
+        }, AWTEvent.MOUSE_EVENT_MASK);
+
+        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke("ESCAPE"), "clickAway");
+        root.getActionMap().put("clickAway", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                transactionTable.clearSelection();
+                root.requestFocusInWindow();
+            }
+        });
     }
 
     /** A button in the accent color, for the main action of an area. */
