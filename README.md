@@ -1,11 +1,14 @@
-# java_template
+# Budget Tracker
 
-A minimal Maven starter for Java projects: compiles, runs, tests, and builds a runnable jar.
+A simple Swing budget tracker. The net budget is made of categories you create; each category holds transactions.
+Positive amounts are income, negative amounts are expenses.
+
+Data is saved automatically after every change to `~/budget-tracker.txt` (plain text, tab-separated).
 
 ## Requirements
 
 - JDK 21 (check with `java -version`)
-- Maven 3.9+ (check with `mvn -version`)
+- Maven 3.9+ (or use the included `./mvnw`)
 
 ## Usage
 
@@ -15,22 +18,18 @@ A minimal Maven starter for Java projects: compiles, runs, tests, and builds a r
 | Run tests | `mvn test` |
 | Build the jar (also runs tests) | `mvn package` |
 | Run the built jar | `java -jar target/*.jar` |
-| Build and run in one go | `mvn package && java -jar target/*.jar` |
-| Clean build output | `mvn clean` |
 
 ## Project structure
 
 ```
-.
-├── pom.xml
-└── src
-    ├── main/java/btndbrt/Main.java       # entry point
-    └── test/java/btndbrt/MainTest.java   # JUnit 5 tests
+src/main/java/btndbrt/
+├── Main.java                  # entry point: loads data, opens the window
+├── Budget.java                # list of categories + net total
+├── Category.java              # name + list of transactions + total
+├── Transaction.java           # date, description, amount
+├── BudgetStorage.java         # save/load the text file
+├── BudgetFrame.java           # the main window and all button actions
+└── TransactionTableModel.java # connects a category's transactions to the JTable
+src/test/java/btndbrt/
+└── BudgetTest.java            # totals and save/load tests
 ```
-
-## Starting a new project from this template
-
-1. On GitHub, click **Use this template → Create a new repository**, then clone the new repo.
-2. In `pom.xml`, change `artifactId` (and `groupId` if needed).
-3. If you rename the package or main class, update the `exec.mainClass` property in `pom.xml` and move the folders under `src/main/java` and `src/test/java` to match.
-4. Replace this README with a description of the new project.

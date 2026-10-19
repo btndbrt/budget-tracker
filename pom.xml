@@ -6,7 +6,7 @@
 
   <!-- ===== Change these per project ===== -->
   <groupId>btndbrt</groupId>
-  <artifactId>java-template</artifactId>
+  <artifactId>budget-tracker</artifactId>
   <version>1.0</version>
 
   <properties>
