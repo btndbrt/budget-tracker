@@ -1,7 +1,8 @@
 # Budget Tracker
 
-A simple Swing budget tracker. The net budget is made of categories you create; each category holds transactions.
-Positive amounts are income, negative amounts are expenses.
+A simple Swing budget tracker. You create categories, each with a budget amount (e.g. Groceries: 400).
+Transactions in a category are subtracted from its amount, so you see what is left.
+The net budget is the sum of all category amounts.
 
 Data is saved automatically after every change to `~/budget-tracker.txt` (plain text, tab-separated).
 
@@ -24,8 +25,8 @@ Data is saved automatically after every change to `~/budget-tracker.txt` (plain 
 ```
 src/main/java/btndbrt/
 ├── Main.java                  # entry point: loads data, opens the window
-├── Budget.java                # list of categories + net total
-├── Category.java              # name + list of transactions + total
+├── Budget.java                # list of categories + net totals
+├── Category.java              # name, budget amount, transactions, remaining
 ├── Transaction.java           # date, description, amount
 ├── BudgetStorage.java         # save/load the text file
 ├── BudgetFrame.java           # the main window and all button actions

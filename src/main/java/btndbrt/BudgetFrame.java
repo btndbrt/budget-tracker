@@ -74,6 +74,14 @@ public class BudgetFrame extends JFrame {
     private JPanel buildCategoryPanel() {
         categoryList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         categoryList.setCellRenderer(new CategoryRenderer());
+        categoryList.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    editCategory();
+                }
+            }
+        });
         categoryList.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 tableModel.setCategory(categoryList.getSelectedValue());
@@ -82,15 +90,15 @@ public class BudgetFrame extends JFrame {
         });
 
         JButton addButton = new JButton("New");
-        JButton renameButton = new JButton("Rename");
+        JButton editButton = new JButton("Edit");
         JButton deleteButton = new JButton("Delete");
         addButton.addActionListener(e -> addCategory());
-        renameButton.addActionListener(e -> renameCategory());
+        editButton.addActionListener(e -> editCategory());
         deleteButton.addActionListener(e -> deleteCategory());
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
         buttons.add(addButton);
-        buttons.add(renameButton);
+        buttons.add(editButton);
         buttons.add(deleteButton);
 
         JPanel panel = new JPanel(new BorderLayout());
@@ -136,29 +144,25 @@ public class BudgetFrame extends JFrame {
     // ---------- Category actions ----------
 
     private void addCategory() {
-        String name = askCategoryName("New category name:", "");
-        if (name == null) {
+        Category category = new Category("", BigDecimal.ZERO);
+        if (!showCategoryDialog(category, "New category")) {
             return;
         }
-        Category category = new Category(name);
         budget.getCategories().add(category);
         categoryListModel.addElement(category);
         categoryList.setSelectedValue(category, true);
         changed();
     }
 
-    private void renameCategory() {
+    private void editCategory() {
         Category category = categoryList.getSelectedValue();
         if (category == null) {
             showMessage("Select a category first.");
             return;
         }
-        String name = askCategoryName("New name:", category.getName());
-        if (name == null) {
-            return;
+        if (showCategoryDialog(category, "Edit category")) {
+            changed();
         }
-        category.setName(name);
-        changed();
     }
 
     private void deleteCategory() {
@@ -178,24 +182,45 @@ public class BudgetFrame extends JFrame {
         changed();
     }
 
-    /** Asks for a category name. Returns null if the user cancelled. */
-    private String askCategoryName(String prompt, String currentName) {
-        String shown = currentName;
+    /**
+     * Shows a form for the category's name and budget amount. If the user presses OK and the
+     * input is valid, the category is updated and true is returned.
+     */
+    private boolean showCategoryDialog(Category category, String title) {
+        String currentName = category.getName();
+        JTextField nameField = new JTextField(currentName, 20);
+        JTextField amountField = new JTextField(
+                category.getBudgetAmount().signum() == 0 ? "" : category.getBudgetAmount().toPlainString());
+
+        JPanel form = new JPanel(new GridLayout(0, 2, 5, 5));
+        form.add(new JLabel("Name:"));
+        form.add(nameField);
+        form.add(new JLabel("Budget amount:"));
+        form.add(amountField);
+
         while (true) {
-            String name = (String) JOptionPane.showInputDialog(this, prompt, "Category",
-                    JOptionPane.PLAIN_MESSAGE, null, null, shown);
-            if (name == null) {
-                return null;
+            int result = JOptionPane.showConfirmDialog(this, form, title,
+                    JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+            if (result != JOptionPane.OK_OPTION) {
+                return false;
             }
-            name = name.trim();
+            String name = nameField.getText().trim();
             if (name.isEmpty()) {
                 showMessage("The name cannot be empty.");
-            } else if (!name.equalsIgnoreCase(currentName) && budget.hasCategory(name)) {
-                showMessage("A category with this name already exists.");
-            } else {
-                return name;
+                continue;
             }
-            shown = name; // keep what the user typed so they can fix it
+            if (!name.equalsIgnoreCase(currentName) && budget.hasCategory(name)) {
+                showMessage("A category with this name already exists.");
+                continue;
+            }
+            BigDecimal amount = parseAmount(amountField.getText());
+            if (amount == null) {
+                showMessage("Invalid amount. Examples: 400, 120.50");
+                continue;
+            }
+            category.setName(name);
+            category.setBudgetAmount(amount);
+            return true;
         }
     }
 
@@ -266,7 +291,7 @@ public class BudgetFrame extends JFrame {
         form.add(dateField);
         form.add(new JLabel("Description:"));
         form.add(descriptionField);
-        form.add(new JLabel("Amount (- for expense):"));
+        form.add(new JLabel("Amount spent:"));
         form.add(amountField);
 
         while (true) {
@@ -276,17 +301,15 @@ public class BudgetFrame extends JFrame {
                 return false;
             }
             LocalDate date;
-            BigDecimal amount;
             try {
                 date = LocalDate.parse(dateField.getText().trim());
             } catch (DateTimeParseException e) {
                 showMessage("Invalid date. Use the format YYYY-MM-DD, e.g. 2026-10-19.");
                 continue;
             }
-            try {
-                amount = new BigDecimal(amountField.getText().trim().replace(',', '.'));
-            } catch (NumberFormatException e) {
-                showMessage("Invalid amount. Examples: 1500, -12.50");
+            BigDecimal amount = parseAmount(amountField.getText());
+            if (amount == null) {
+                showMessage("Invalid amount. Examples: 12.50 (a refund can be negative: -5)");
                 continue;
             }
             t.setDate(date);
@@ -311,27 +334,43 @@ public class BudgetFrame extends JFrame {
 
     private void refreshTotals() {
         Category category = categoryList.getSelectedValue();
-        categoryTotalLabel.setText(category == null ? "" : "Category total: " + formatMoney(category.getTotal()));
-        netTotalLabel.setText("Net budget: " + formatMoney(budget.getNetTotal()));
-        categoryList.repaint(); // the list shows totals too
+        categoryTotalLabel.setText(category == null ? "" : summary("Budget", category.getBudgetAmount(),
+                category.getSpent(), category.getRemaining()));
+        netTotalLabel.setText(summary("Net budget", budget.getTotalBudget(), budget.getTotalSpent(),
+                budget.getTotalRemaining()));
+        categoryList.repaint(); // the list shows amounts too
     }
 
     private void showMessage(String message) {
         JOptionPane.showMessageDialog(this, message);
     }
 
+    private static String summary(String label, BigDecimal budgetAmount, BigDecimal spent, BigDecimal remaining) {
+        return label + ": " + formatMoney(budgetAmount) + "   Spent: " + formatMoney(spent)
+                + "   Remaining: " + formatMoney(remaining);
+    }
+
+    /** Parses "12.50" or "12,50". Returns null if the text is not a number. */
+    private static BigDecimal parseAmount(String text) {
+        try {
+            return new BigDecimal(text.trim().replace(',', '.'));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     static String formatMoney(BigDecimal amount) {
         return String.format("%,.2f", amount);
     }
 
-    /** Shows each category as "Name (total)". */
+    /** Shows each category as "Name  (remaining / budget amount)". */
     private static class CategoryRenderer extends DefaultListCellRenderer {
         @Override
         public Component getListCellRendererComponent(JList<?> list, Object value, int index,
                                                       boolean isSelected, boolean cellHasFocus) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             Category c = (Category) value;
-            setText(c.getName() + "  (" + formatMoney(c.getTotal()) + ")");
+            setText(c.getName() + "  (" + formatMoney(c.getRemaining()) + " / " + formatMoney(c.getBudgetAmount()) + ")");
             return this;
         }
     }

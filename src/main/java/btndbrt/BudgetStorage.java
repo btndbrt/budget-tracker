@@ -13,8 +13,8 @@ import java.util.List;
  * One line per item, fields separated by tabs:
  *
  * <pre>
- * CATEGORY  Groceries
- * TX        2026-10-19  -12.50  Bread and milk
+ * CATEGORY  Groceries   400.00
+ * TX        2026-10-19  12.50   Bread and milk
  * </pre>
  *
  * Each TX line belongs to the CATEGORY line above it.
@@ -26,7 +26,7 @@ public class BudgetStorage {
     public static void save(Budget budget, Path file) throws IOException {
         List<String> lines = new ArrayList<>();
         for (Category c : budget.getCategories()) {
-            lines.add("CATEGORY" + SEPARATOR + clean(c.getName()));
+            lines.add("CATEGORY" + SEPARATOR + clean(c.getName()) + SEPARATOR + c.getBudgetAmount().toPlainString());
             for (Transaction t : c.getTransactions()) {
                 lines.add("TX" + SEPARATOR + t.getDate() + SEPARATOR + t.getAmount().toPlainString()
                         + SEPARATOR + clean(t.getDescription()));
@@ -52,7 +52,9 @@ public class BudgetStorage {
             String[] parts = line.split(SEPARATOR, -1);
             try {
                 if (parts[0].equals("CATEGORY")) {
-                    current = new Category(parts[1]);
+                    // Files from older versions have no budget amount, so use 0
+                    BigDecimal budgetAmount = parts.length > 2 ? new BigDecimal(parts[2]) : BigDecimal.ZERO;
+                    current = new Category(parts[1], budgetAmount);
                     budget.getCategories().add(current);
                 } else if (parts[0].equals("TX") && current != null) {
                     LocalDate date = LocalDate.parse(parts[1]);
