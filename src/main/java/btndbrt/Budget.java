@@ -1,17 +1,19 @@
 package btndbrt;
 
-import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
-/** The whole budget: a list of categories. The net budget is the sum of all category amounts. */
+/** Everything the app stores: the currency and all budget periods (current and past). */
 public class Budget {
 
-    private final List<Category> categories = new ArrayList<>();
+    private final List<Period> periods = new ArrayList<>();
     private String currency = ""; // shown after every amount, e.g. "HUF"
 
-    public List<Category> getCategories() {
-        return categories;
+    public List<Period> getPeriods() {
+        return periods;
     }
 
     public String getCurrency() {
@@ -22,33 +24,56 @@ public class Budget {
         this.currency = currency;
     }
 
-    public boolean hasCategory(String name) {
-        for (Category c : categories) {
-            if (c.getName().equalsIgnoreCase(name)) {
-                return true;
+    /** Keeps the periods in date order, oldest first. Call after adding a period or changing its dates. */
+    public void sortPeriods() {
+        periods.sort(Comparator.comparing(Period::getStart));
+    }
+
+    /** The period that ends last, or null if there are none. */
+    public Period getLatestPeriod() {
+        Period latest = null;
+        for (Period p : periods) {
+            if (latest == null || p.getEnd().isAfter(latest.getEnd())) {
+                latest = p;
             }
         }
-        return false;
+        return latest;
     }
 
-    /** The net budget: all category amounts added together. */
-    public BigDecimal getTotalBudget() {
-        BigDecimal total = BigDecimal.ZERO;
-        for (Category c : categories) {
-            total = total.add(c.getBudgetAmount());
+    /** Adds a period and keeps the list in date order. */
+    public void addPeriod(Period period) {
+        periods.add(period);
+        sortPeriods();
+    }
+
+    /**
+     * Returns a period that overlaps the given dates, or null if there is none.
+     * {@code ignore} is left out of the check (the period being edited), it can be null.
+     */
+    public Period findOverlap(LocalDate start, LocalDate end, Period ignore) {
+        for (Period p : periods) {
+            if (p != ignore && !start.isAfter(p.getEnd()) && !end.isBefore(p.getStart())) {
+                return p;
+            }
         }
-        return total;
+        return null;
     }
 
-    public BigDecimal getTotalSpent() {
-        BigDecimal total = BigDecimal.ZERO;
-        for (Category c : categories) {
-            total = total.add(c.getSpent());
+    /**
+     * Makes (but does not add) the period after the latest one: it starts the day after the latest
+     * period ends and lasts one month. The categories and their amounts are copied, but not the
+     * transactions. With no periods yet, it is the current calendar month.
+     */
+    public Period nextPeriod() {
+        Period latest = getLatestPeriod();
+        if (latest == null) {
+            return Period.ofMonth(YearMonth.now());
         }
-        return total;
-    }
-
-    public BigDecimal getTotalRemaining() {
-        return getTotalBudget().subtract(getTotalSpent());
+        LocalDate start = latest.getEnd().plusDays(1);
+        Period next = new Period(start, start.plusMonths(1).minusDays(1));
+        for (Category c : latest.getCategories()) {
+            next.getCategories().add(new Category(c.getName(), c.getBudgetAmount()));
+        }
+        return next;
     }
 }

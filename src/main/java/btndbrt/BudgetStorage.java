@@ -5,6 +5,7 @@ import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -14,11 +15,12 @@ import java.util.List;
  *
  * <pre>
  * CURRENCY  HUF
+ * PERIOD    2026-10-01  2026-10-31
  * CATEGORY  Groceries   400.00
  * TX        2026-10-19  12.50   Bread and milk
  * </pre>
  *
- * Each TX line belongs to the CATEGORY line above it.
+ * Each TX line belongs to the CATEGORY line above it, and each CATEGORY to the PERIOD above it.
  */
 public class BudgetStorage {
 
@@ -27,11 +29,14 @@ public class BudgetStorage {
     public static void save(Budget budget, Path file) throws IOException {
         List<String> lines = new ArrayList<>();
         lines.add("CURRENCY" + SEPARATOR + clean(budget.getCurrency()));
-        for (Category c : budget.getCategories()) {
-            lines.add("CATEGORY" + SEPARATOR + clean(c.getName()) + SEPARATOR + c.getBudgetAmount().toPlainString());
-            for (Transaction t : c.getTransactions()) {
-                lines.add("TX" + SEPARATOR + t.getDate() + SEPARATOR + t.getAmount().toPlainString()
-                        + SEPARATOR + clean(t.getDescription()));
+        for (Period p : budget.getPeriods()) {
+            lines.add("PERIOD" + SEPARATOR + p.getStart() + SEPARATOR + p.getEnd());
+            for (Category c : p.getCategories()) {
+                lines.add("CATEGORY" + SEPARATOR + clean(c.getName()) + SEPARATOR + c.getBudgetAmount().toPlainString());
+                for (Transaction t : c.getTransactions()) {
+                    lines.add("TX" + SEPARATOR + t.getDate() + SEPARATOR + t.getAmount().toPlainString()
+                            + SEPARATOR + clean(t.getDescription()));
+                }
             }
         }
         Files.write(file, lines);
@@ -43,6 +48,7 @@ public class BudgetStorage {
         if (!Files.exists(file)) {
             return budget;
         }
+        Period currentPeriod = null;
         Category current = null;
         int lineNumber = 0;
         for (String line : Files.readAllLines(file)) {
@@ -55,11 +61,20 @@ public class BudgetStorage {
             try {
                 if (parts[0].equals("CURRENCY")) {
                     budget.setCurrency(parts[1]);
+                } else if (parts[0].equals("PERIOD")) {
+                    currentPeriod = new Period(LocalDate.parse(parts[1]), LocalDate.parse(parts[2]));
+                    budget.addPeriod(currentPeriod);
+                    current = null;
                 } else if (parts[0].equals("CATEGORY")) {
+                    // Files from older versions have no periods: put their categories in the current month
+                    if (currentPeriod == null) {
+                        currentPeriod = Period.ofMonth(YearMonth.now());
+                        budget.addPeriod(currentPeriod);
+                    }
                     // Files from older versions have no budget amount, so use 0
                     BigDecimal budgetAmount = parts.length > 2 ? new BigDecimal(parts[2]) : BigDecimal.ZERO;
                     current = new Category(parts[1], budgetAmount);
-                    budget.getCategories().add(current);
+                    currentPeriod.getCategories().add(current);
                 } else if (parts[0].equals("TX") && current != null) {
                     LocalDate date = LocalDate.parse(parts[1]);
                     BigDecimal amount = new BigDecimal(parts[2]);

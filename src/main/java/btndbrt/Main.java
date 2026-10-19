@@ -29,6 +29,9 @@ public class Main {
                         "Load error", JOptionPane.ERROR_MESSAGE);
                 return; // don't start with an empty budget, it would overwrite the file on the first change
             }
+            if (budget.getPeriods().isEmpty()) {
+                budget.addPeriod(budget.nextPeriod()); // first start: the current month
+            }
             new BudgetFrame(budget, DATA_FILE).setVisible(true);
         });
     }

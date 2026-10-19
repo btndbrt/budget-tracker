@@ -10,11 +10,13 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.time.LocalDate;
-import java.time.format.DateTimeParseException;
+import java.util.List;
 import javax.swing.BorderFactory;
+import javax.swing.DefaultComboBoxModel;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
+import javax.swing.JComboBox;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JList;
@@ -30,11 +32,19 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableCellRenderer;
 
-/** The main window: categories on the left, transactions of the selected category on the right. */
+/**
+ * The main window. At the top you choose the period (month); below are its categories on the left
+ * and the transactions of the selected category on the right.
+ */
 public class BudgetFrame extends JFrame {
 
     private final Budget budget;
     private final Path dataFile;
+    private Period currentPeriod; // the period shown in the window
+
+    private final DefaultComboBoxModel<Period> periodComboModel = new DefaultComboBoxModel<>();
+    private final JComboBox<Period> periodCombo = new JComboBox<>(periodComboModel);
+    private boolean fillingPeriodCombo = false; // true while we refill the drop-down ourselves
 
     private final DefaultListModel<Category> categoryListModel = new DefaultListModel<>();
     private final JList<Category> categoryList = new JList<>(categoryListModel);
@@ -49,10 +59,6 @@ public class BudgetFrame extends JFrame {
         this.budget = budget;
         this.dataFile = dataFile;
 
-        for (Category c : budget.getCategories()) {
-            categoryListModel.addElement(c);
-        }
-
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, buildCategoryPanel(), buildTransactionPanel());
         split.setDividerLocation(250);
 
@@ -62,20 +68,41 @@ public class BudgetFrame extends JFrame {
         bottom.add(netPanel, BorderLayout.CENTER);
         bottom.add(buildCurrencyPanel(), BorderLayout.EAST);
 
+        add(buildPeriodPanel(), BorderLayout.NORTH);
         add(split, BorderLayout.CENTER);
         add(bottom, BorderLayout.SOUTH);
 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(800, 500);
+        setSize(900, 550);
         setLocationRelativeTo(null); // center on screen
 
-        if (!categoryListModel.isEmpty()) {
-            categoryList.setSelectedIndex(0);
-        }
-        refreshTotals();
+        fillPeriodCombo(periodToShowAtStart());
     }
 
     // ---------- Layout ----------
+
+    private JPanel buildPeriodPanel() {
+        periodCombo.addActionListener(e -> {
+            if (!fillingPeriodCombo) {
+                showPeriod((Period) periodCombo.getSelectedItem());
+            }
+        });
+
+        JButton newButton = new JButton("New period");
+        JButton editButton = new JButton("Edit dates");
+        JButton deleteButton = new JButton("Delete period");
+        newButton.addActionListener(e -> addPeriod());
+        editButton.addActionListener(e -> editPeriod());
+        deleteButton.addActionListener(e -> deletePeriod());
+
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        panel.add(new JLabel("Period:"));
+        panel.add(periodCombo);
+        panel.add(newButton);
+        panel.add(editButton);
+        panel.add(deleteButton);
+        return panel;
+    }
 
     private JPanel buildCategoryPanel() {
         categoryList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -179,6 +206,120 @@ public class BudgetFrame extends JFrame {
         changed();
     }
 
+    // ---------- Period actions ----------
+
+    /** The period that contains today, or else the latest one. */
+    private Period periodToShowAtStart() {
+        for (Period p : budget.getPeriods()) {
+            if (p.contains(LocalDate.now())) {
+                return p;
+            }
+        }
+        return budget.getLatestPeriod();
+    }
+
+    /** Refills the drop-down (newest period first) and shows the given period. */
+    private void fillPeriodCombo(Period toSelect) {
+        fillingPeriodCombo = true; // stop the drop-down's listener from reacting to our changes
+        periodComboModel.removeAllElements();
+        List<Period> periods = budget.getPeriods();
+        for (int i = periods.size() - 1; i >= 0; i--) {
+            periodComboModel.addElement(periods.get(i));
+        }
+        periodComboModel.setSelectedItem(toSelect);
+        fillingPeriodCombo = false;
+        showPeriod(toSelect);
+    }
+
+    /** Shows the categories of the given period. */
+    private void showPeriod(Period period) {
+        currentPeriod = period;
+        categoryListModel.clear();
+        for (Category c : period.getCategories()) {
+            categoryListModel.addElement(c);
+        }
+        if (!categoryListModel.isEmpty()) {
+            categoryList.setSelectedIndex(0);
+        }
+        refreshTotals();
+    }
+
+    private void addPeriod() {
+        Period period = budget.nextPeriod();
+        // The new period already has the categories and amounts of the latest one
+        if (!showPeriodDialog(period, "New period")) {
+            return;
+        }
+        budget.addPeriod(period);
+        fillPeriodCombo(period);
+        changed();
+    }
+
+    private void editPeriod() {
+        if (showPeriodDialog(currentPeriod, "Edit period dates")) {
+            budget.sortPeriods();
+            fillPeriodCombo(currentPeriod); // the dates in the drop-down changed
+            changed();
+        }
+    }
+
+    private void deletePeriod() {
+        if (budget.getPeriods().size() == 1) {
+            showMessage("This is the only period, it cannot be deleted.");
+            return;
+        }
+        int answer = JOptionPane.showConfirmDialog(this,
+                "Delete the period " + currentPeriod + " with all its categories and transactions?",
+                "Delete period", JOptionPane.YES_NO_OPTION);
+        if (answer != JOptionPane.YES_OPTION) {
+            return;
+        }
+        budget.getPeriods().remove(currentPeriod);
+        fillPeriodCombo(budget.getLatestPeriod());
+        changed();
+    }
+
+    /**
+     * Shows a form for the start and end date of the period. If the user presses OK and the
+     * dates are valid, the period is updated and true is returned.
+     */
+    private boolean showPeriodDialog(Period period, String title) {
+        DateField startField = new DateField(period.getStart());
+        DateField endField = new DateField(period.getEnd());
+
+        JPanel form = new JPanel(new GridLayout(0, 2, 5, 5));
+        form.add(new JLabel("Start date:"));
+        form.add(startField);
+        form.add(new JLabel("End date:"));
+        form.add(endField);
+
+        while (true) {
+            int result = JOptionPane.showConfirmDialog(this, form, title,
+                    JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+            if (result != JOptionPane.OK_OPTION) {
+                return false;
+            }
+            LocalDate start = startField.getDate();
+            LocalDate end = endField.getDate();
+            if (start == null || end == null) {
+                showMessage("Invalid date. Use the format YYYY-MM-DD, e.g. 2026-10-19.");
+                continue;
+            }
+            if (end.isBefore(start)) {
+                showMessage("The end date cannot be before the start date.");
+                continue;
+            }
+            Period overlap = budget.findOverlap(start, end, period);
+            if (overlap != null) {
+                showMessage("These dates overlap with the period " + overlap + ".");
+                continue;
+            }
+            period.setStart(start);
+            period.setEnd(end);
+            return true;
+        }
+    }
+
     // ---------- Category actions ----------
 
     private void addCategory() {
@@ -186,7 +327,7 @@ public class BudgetFrame extends JFrame {
         if (!showCategoryDialog(category, "New category")) {
             return;
         }
-        budget.getCategories().add(category);
+        currentPeriod.getCategories().add(category);
         categoryListModel.addElement(category);
         categoryList.setSelectedValue(category, true);
         changed();
@@ -215,7 +356,7 @@ public class BudgetFrame extends JFrame {
         if (answer != JOptionPane.YES_OPTION) {
             return;
         }
-        budget.getCategories().remove(category);
+        currentPeriod.getCategories().remove(category);
         categoryListModel.removeElement(category);
         changed();
     }
@@ -247,7 +388,7 @@ public class BudgetFrame extends JFrame {
                 showMessage("The name cannot be empty.");
                 continue;
             }
-            if (!name.equalsIgnoreCase(currentName) && budget.hasCategory(name)) {
+            if (!name.equalsIgnoreCase(currentName) && currentPeriod.hasCategory(name)) {
                 showMessage("A category with this name already exists.");
                 continue;
             }
@@ -270,7 +411,10 @@ public class BudgetFrame extends JFrame {
             showMessage("Select or create a category first.");
             return;
         }
-        Transaction t = new Transaction(LocalDate.now(), "", BigDecimal.ZERO);
+        // Today if it is in this period, otherwise the first day of the period
+        LocalDate today = LocalDate.now();
+        LocalDate date = currentPeriod.contains(today) ? today : currentPeriod.getStart();
+        Transaction t = new Transaction(date, "", BigDecimal.ZERO);
         if (showTransactionDialog(t, "Add transaction")) {
             category.getTransactions().add(t);
             tableModel.fireTableDataChanged();
@@ -320,12 +464,12 @@ public class BudgetFrame extends JFrame {
      * the transaction is updated and true is returned.
      */
     private boolean showTransactionDialog(Transaction t, String title) {
-        JTextField dateField = new JTextField(t.getDate().toString());
+        DateField dateField = new DateField(t.getDate());
         JTextField descriptionField = new JTextField(t.getDescription(), 20);
         JTextField amountField = new JTextField(t.getAmount().signum() == 0 ? "" : t.getAmount().toPlainString());
 
         JPanel form = new JPanel(new GridLayout(0, 2, 5, 5));
-        form.add(new JLabel("Date (YYYY-MM-DD):"));
+        form.add(new JLabel("Date:"));
         form.add(dateField);
         form.add(new JLabel("Description:"));
         form.add(descriptionField);
@@ -338,10 +482,8 @@ public class BudgetFrame extends JFrame {
             if (result != JOptionPane.OK_OPTION) {
                 return false;
             }
-            LocalDate date;
-            try {
-                date = LocalDate.parse(dateField.getText().trim());
-            } catch (DateTimeParseException e) {
+            LocalDate date = dateField.getDate();
+            if (date == null) {
                 showMessage("Invalid date. Use the format YYYY-MM-DD, e.g. 2026-10-19.");
                 continue;
             }
@@ -349,6 +491,14 @@ public class BudgetFrame extends JFrame {
             if (amount == null) {
                 showMessage("Invalid amount. Examples: 12.50 (a refund can be negative: -5)");
                 continue;
+            }
+            if (!currentPeriod.contains(date)) {
+                int answer = JOptionPane.showConfirmDialog(this,
+                        date + " is outside the period " + currentPeriod + ". Save anyway?",
+                        "Date outside period", JOptionPane.YES_NO_OPTION);
+                if (answer != JOptionPane.YES_OPTION) {
+                    continue;
+                }
             }
             t.setDate(date);
             t.setDescription(descriptionField.getText().trim());
@@ -374,8 +524,8 @@ public class BudgetFrame extends JFrame {
         Category category = categoryList.getSelectedValue();
         categoryTotalLabel.setText(category == null ? "" : summary("Budget", category.getBudgetAmount(),
                 category.getSpent(), category.getRemaining()));
-        netTotalLabel.setText(summary("Net budget", budget.getTotalBudget(), budget.getTotalSpent(),
-                budget.getTotalRemaining()));
+        netTotalLabel.setText(summary("Net budget", currentPeriod.getTotalBudget(), currentPeriod.getTotalSpent(),
+                currentPeriod.getTotalRemaining()));
         categoryList.repaint(); // the list shows amounts too
     }
 
