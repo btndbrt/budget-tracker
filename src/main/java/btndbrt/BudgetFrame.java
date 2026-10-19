@@ -1,22 +1,25 @@
 package btndbrt;
 
 import java.awt.BorderLayout;
-import java.awt.Component;
 import java.awt.FlowLayout;
 import java.awt.GridLayout;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultComboBoxModel;
-import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
+import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JList;
@@ -24,19 +27,23 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
+import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingConstants;
+import javax.swing.Timer;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableCellRenderer;
 
 /**
- * The main window. At the top you choose the period (month); below are its categories on the left
- * and the transactions of the selected category on the right.
+ * The main window. At the top: the period, the currency and summary tiles.
+ * Below, the "Budget" tab has the categories and transactions, the "Charts" tab the charts.
  */
 public class BudgetFrame extends JFrame {
+
+    private static final DateTimeFormatter TILE_DATE = DateTimeFormatter.ofPattern("EEE, MMM d", Locale.ENGLISH);
 
     private final Budget budget;
     private final Path dataFile;
@@ -46,67 +53,121 @@ public class BudgetFrame extends JFrame {
     private final JComboBox<Period> periodCombo = new JComboBox<>(periodComboModel);
     private boolean fillingPeriodCombo = false; // true while we refill the drop-down ourselves
 
+    private final StatTile todayTile = new StatTile("Today");
+    private final StatTile budgetTile = new StatTile("Budget");
+    private final StatTile spentTile = new StatTile("Spent");
+    private final StatTile remainingTile = new StatTile("Remaining");
+    private final StatTile perDayTile = new StatTile("Left per day");
+
     private final DefaultListModel<Category> categoryListModel = new DefaultListModel<>();
     private final JList<Category> categoryList = new JList<>(categoryListModel);
+    private final CategoryCell categoryCell = new CategoryCell();
     private final TransactionTableModel tableModel = new TransactionTableModel();
     private final JTable transactionTable = new JTable(tableModel);
+    private final Card transactionsCard = new Card("Transactions");
     private final JLabel categoryTotalLabel = new JLabel();
-    private final JLabel netTotalLabel = new JLabel();
     private final JTextField currencyField = new JTextField(6);
+
+    private final PieChartPanel pieChart = new PieChartPanel();
+    private final LineChartPanel lineChart = new LineChartPanel();
+    private final Card lineChartCard = new Card("Spending over time");
+    private final JCheckBox onlySelectedCategoryBox = new JCheckBox();
 
     public BudgetFrame(Budget budget, Path dataFile) {
         super("Budget Tracker");
         this.budget = budget;
         this.dataFile = dataFile;
 
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, buildCategoryPanel(), buildTransactionPanel());
-        split.setDividerLocation(250);
+        JTabbedPane tabs = new JTabbedPane();
+        tabs.addTab("Budget", buildBudgetTab());
+        tabs.addTab("Charts", buildChartsTab());
 
-        JPanel bottom = new JPanel(new BorderLayout());
-        JPanel netPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        netPanel.add(netTotalLabel);
-        bottom.add(netPanel, BorderLayout.CENTER);
-        bottom.add(buildCurrencyPanel(), BorderLayout.EAST);
-
-        add(buildPeriodPanel(), BorderLayout.NORTH);
-        add(split, BorderLayout.CENTER);
-        add(bottom, BorderLayout.SOUTH);
+        JPanel root = new JPanel(new BorderLayout(0, 12));
+        root.setBorder(BorderFactory.createEmptyBorder(12, 16, 16, 16));
+        root.add(buildHeader(), BorderLayout.NORTH);
+        root.add(tabs, BorderLayout.CENTER);
+        setContentPane(root);
 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(900, 550);
+        setSize(1150, 720);
         setLocationRelativeTo(null); // center on screen
 
         fillPeriodCombo(periodToShowAtStart());
+
+        // Check once a minute, so "today" is right even if the app stays open past midnight
+        new Timer(60_000, e -> refreshTotals()).start();
     }
 
     // ---------- Layout ----------
 
-    private JPanel buildPeriodPanel() {
+    /** Period controls and currency on top, summary tiles below. */
+    private JPanel buildHeader() {
         periodCombo.addActionListener(e -> {
             if (!fillingPeriodCombo) {
                 showPeriod((Period) periodCombo.getSelectedItem());
             }
         });
 
-        JButton newButton = new JButton("New period");
+        JButton newButton = primaryButton("+ New period");
         JButton editButton = new JButton("Edit dates");
-        JButton deleteButton = new JButton("Delete period");
+        JButton deleteButton = new JButton("Delete");
         newButton.addActionListener(e -> addPeriod());
         editButton.addActionListener(e -> editPeriod());
         deleteButton.addActionListener(e -> deletePeriod());
 
-        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        panel.add(new JLabel("Period:"));
-        panel.add(periodCombo);
-        panel.add(newButton);
-        panel.add(editButton);
-        panel.add(deleteButton);
+        JPanel periodControls = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        periodControls.add(new JLabel("Period"));
+        periodControls.add(periodCombo);
+        periodControls.add(editButton);
+        periodControls.add(deleteButton);
+        periodControls.add(newButton);
+
+        JPanel topRow = new JPanel(new BorderLayout());
+        topRow.add(periodControls, BorderLayout.WEST);
+        topRow.add(buildCurrencyPanel(), BorderLayout.EAST);
+
+        JPanel tiles = new JPanel(new GridLayout(1, 5, 12, 0));
+        tiles.add(todayTile);
+        tiles.add(budgetTile);
+        tiles.add(spentTile);
+        tiles.add(remainingTile);
+        tiles.add(perDayTile);
+
+        JPanel header = new JPanel(new BorderLayout(0, 12));
+        header.add(topRow, BorderLayout.NORTH);
+        header.add(tiles, BorderLayout.CENTER);
+        return header;
+    }
+
+    private JComponent buildBudgetTab() {
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, buildCategoryCard(), buildTransactionsCard());
+        split.setDividerLocation(360);
+        split.setDividerSize(12);
+        split.setBorder(BorderFactory.createEmptyBorder(12, 0, 0, 0));
+        split.setOpaque(false);
+        return split;
+    }
+
+    private JComponent buildChartsTab() {
+        onlySelectedCategoryBox.setOpaque(false);
+        onlySelectedCategoryBox.addActionListener(e -> refreshCharts());
+
+        Card pieCard = new Card("Spending by category");
+        pieCard.setContent(pieChart);
+        lineChartCard.addToHeader(onlySelectedCategoryBox);
+        lineChartCard.setContent(lineChart);
+
+        JPanel panel = new JPanel(new GridLayout(1, 2, 12, 0));
+        panel.setBorder(BorderFactory.createEmptyBorder(12, 0, 0, 0));
+        panel.add(pieCard);
+        panel.add(lineChartCard);
         return panel;
     }
 
-    private JPanel buildCategoryPanel() {
+    private Card buildCategoryCard() {
         categoryList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        categoryList.setCellRenderer(new CategoryRenderer());
+        categoryList.setCellRenderer(categoryCell);
+        categoryList.setBackground(ChartColors.SURFACE);
         categoryList.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -122,29 +183,27 @@ public class BudgetFrame extends JFrame {
             }
         });
 
-        JButton addButton = new JButton("New");
+        JButton addButton = primaryButton("+ New");
         JButton editButton = new JButton("Edit");
         JButton deleteButton = new JButton("Delete");
         addButton.addActionListener(e -> addCategory());
         editButton.addActionListener(e -> editCategory());
         deleteButton.addActionListener(e -> deleteCategory());
 
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        buttons.add(addButton);
-        buttons.add(editButton);
-        buttons.add(deleteButton);
-
-        JPanel panel = new JPanel(new BorderLayout());
-        panel.setBorder(BorderFactory.createTitledBorder("Categories"));
-        panel.add(new JScrollPane(categoryList), BorderLayout.CENTER);
-        panel.add(buttons, BorderLayout.SOUTH);
-        return panel;
+        Card card = new Card("Categories");
+        card.addToHeader(editButton);
+        card.addToHeader(deleteButton);
+        card.addToHeader(addButton);
+        card.setContent(borderless(new JScrollPane(categoryList)));
+        return card;
     }
 
-    private JPanel buildTransactionPanel() {
+    private Card buildTransactionsCard() {
         transactionTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         transactionTable.setAutoCreateRowSorter(true); // click a column header to sort
         transactionTable.setDefaultRenderer(BigDecimal.class, new AmountRenderer());
+        transactionTable.setBackground(ChartColors.SURFACE);
+        transactionTable.setFillsViewportHeight(true);
         transactionTable.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -154,28 +213,30 @@ public class BudgetFrame extends JFrame {
             }
         });
 
-        JButton addButton = new JButton("Add");
+        JButton addButton = primaryButton("+ Add");
         JButton editButton = new JButton("Edit");
         JButton deleteButton = new JButton("Delete");
         addButton.addActionListener(e -> addTransaction());
         editButton.addActionListener(e -> editTransaction());
         deleteButton.addActionListener(e -> deleteTransaction());
 
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        buttons.add(addButton);
-        buttons.add(editButton);
-        buttons.add(deleteButton);
-        buttons.add(categoryTotalLabel);
+        categoryTotalLabel.setForeground(ChartColors.TEXT_SECONDARY);
 
-        JPanel panel = new JPanel(new BorderLayout());
-        panel.setBorder(BorderFactory.createTitledBorder("Transactions"));
-        panel.add(new JScrollPane(transactionTable), BorderLayout.CENTER);
-        panel.add(buttons, BorderLayout.SOUTH);
-        return panel;
+        JPanel content = new JPanel(new BorderLayout(0, 10));
+        content.setOpaque(false);
+        content.add(borderless(new JScrollPane(transactionTable)), BorderLayout.CENTER);
+        content.add(categoryTotalLabel, BorderLayout.SOUTH);
+
+        transactionsCard.addToHeader(editButton);
+        transactionsCard.addToHeader(deleteButton);
+        transactionsCard.addToHeader(addButton);
+        transactionsCard.setContent(content);
+        return transactionsCard;
     }
 
     private JPanel buildCurrencyPanel() {
         currencyField.setText(budget.getCurrency());
+        currencyField.putClientProperty("JTextField.placeholderText", "e.g. HUF");
         // Update the amounts on every keystroke, no button needed
         currencyField.getDocument().addDocumentListener(new DocumentListener() {
             @Override
@@ -194,8 +255,8 @@ public class BudgetFrame extends JFrame {
             }
         });
 
-        JPanel panel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        panel.add(new JLabel("Currency:"));
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        panel.add(new JLabel("Currency"));
         panel.add(currencyField);
         return panel;
     }
@@ -204,6 +265,26 @@ public class BudgetFrame extends JFrame {
         budget.setCurrency(currencyField.getText().trim());
         transactionTable.repaint(); // the table shows amounts too
         changed();
+    }
+
+    /** A button in the accent color, for the main action of an area. */
+    private static JButton primaryButton(String text) {
+        JButton button = new JButton(text);
+        // FlatLaf style: blue background (same blue as the charts), white text
+        button.putClientProperty("FlatLaf.style", "background: #2a78d6;"
+                + "foreground: #ffffff;"
+                + "borderColor: #2a78d6;"
+                + "hoverBackground: #256abf;"
+                + "pressedBackground: #1c5cab;"
+                + "font: bold");
+        return button;
+    }
+
+    /** Removes the scroll pane's own border, the card around it already has one. */
+    private static JScrollPane borderless(JScrollPane scrollPane) {
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.getViewport().setBackground(ChartColors.SURFACE);
+        return scrollPane;
     }
 
     // ---------- Period actions ----------
@@ -522,20 +603,69 @@ public class BudgetFrame extends JFrame {
 
     private void refreshTotals() {
         Category category = categoryList.getSelectedValue();
-        categoryTotalLabel.setText(category == null ? "" : summary("Budget", category.getBudgetAmount(),
-                category.getSpent(), category.getRemaining()));
-        netTotalLabel.setText(summary("Net budget", currentPeriod.getTotalBudget(), currentPeriod.getTotalSpent(),
-                currentPeriod.getTotalRemaining()));
+        transactionsCard.setTitle(category == null ? "Transactions" : category.getName());
+        if (category == null) {
+            categoryTotalLabel.setText("Select a category to see its transactions.");
+        } else {
+            String left = category.getRemaining().signum() < 0
+                    ? "over by " + formatMoney(category.getRemaining().negate())
+                    : formatMoney(category.getRemaining()) + " left";
+            categoryTotalLabel.setText("Spent " + formatMoney(category.getSpent()) + " of "
+                    + formatMoney(category.getBudgetAmount()) + "   \u00b7   " + left);
+        }
+        categoryCell.setCurrency(budget.getCurrency());
         categoryList.repaint(); // the list shows amounts too
+        refreshTiles();
+        refreshCharts();
+    }
+
+    /** The summary tiles at the top. */
+    private void refreshTiles() {
+        LocalDate today = LocalDate.now();
+        boolean todayInPeriod = currentPeriod.contains(today);
+        BigDecimal total = currentPeriod.getTotalBudget();
+        BigDecimal spent = currentPeriod.getTotalSpent();
+        BigDecimal remaining = currentPeriod.getTotalRemaining();
+        boolean over = remaining.signum() < 0;
+
+        if (todayInPeriod) {
+            int daysLeft = currentPeriod.daysLeft(today);
+            todayTile.setValue(today.format(TILE_DATE), "Day " + (currentPeriod.dayIndex(today) + 1) + " of "
+                    + currentPeriod.getDayCount() + "  \u00b7  " + daysLeft + (daysLeft == 1 ? " day" : " days") + " left",
+                    false);
+            BigDecimal perDay = remaining.divide(BigDecimal.valueOf(daysLeft), 2, RoundingMode.HALF_UP);
+            perDayTile.setValue(formatMoney(perDay), "for the days left, today included", over);
+        } else {
+            todayTile.setValue(today.format(TILE_DATE), "Not in the shown period", false);
+            perDayTile.setValue("\u2013", "Only for the current period", false);
+        }
+
+        int count = currentPeriod.getCategories().size();
+        budgetTile.setValue(formatMoney(total), count + (count == 1 ? " category" : " categories"), false);
+        String share = total.signum() > 0
+                ? Math.round(100 * spent.doubleValue() / total.doubleValue()) + "% of the budget"
+                : "";
+        spentTile.setValue(formatMoney(spent), share, false);
+        remainingTile.setValue(formatMoney(remaining), over ? "Over budget" : "", over);
+    }
+
+    private void refreshCharts() {
+        pieChart.setPeriod(currentPeriod, budget.getCurrency());
+
+        Category selected = categoryList.getSelectedValue();
+        onlySelectedCategoryBox.setEnabled(selected != null);
+        onlySelectedCategoryBox.setText("Only " + (selected == null ? "the selected category" : selected.getName()));
+        if (onlySelectedCategoryBox.isSelected() && selected != null) {
+            lineChartCard.setTitle("Spending over time: " + selected.getName());
+            lineChart.setData(currentPeriod, List.of(selected), budget.getCurrency());
+        } else {
+            lineChartCard.setTitle("Spending over time");
+            lineChart.setData(currentPeriod, currentPeriod.getCategories(), budget.getCurrency());
+        }
     }
 
     private void showMessage(String message) {
         JOptionPane.showMessageDialog(this, message);
-    }
-
-    private String summary(String label, BigDecimal budgetAmount, BigDecimal spent, BigDecimal remaining) {
-        return label + ": " + formatMoney(budgetAmount) + "   Spent: " + formatMoney(spent)
-                + "   Remaining: " + formatMoney(remaining);
     }
 
     /** Parses "12.50" or "12,50". Returns null if the text is not a number. */
@@ -549,24 +679,11 @@ public class BudgetFrame extends JFrame {
 
     /** Formats an amount with two decimals and the currency, e.g. "1,500.00 HUF". */
     private String formatMoney(BigDecimal amount) {
-        String text = String.format("%,.2f", amount);
-        return budget.getCurrency().isEmpty() ? text : text + " " + budget.getCurrency();
-    }
-
-    /** Shows each category as "Name  (remaining / budget amount)". */
-    // Not static, because it needs formatMoney(), which uses this window's budget
-    private class CategoryRenderer extends DefaultListCellRenderer {
-        @Override
-        public Component getListCellRendererComponent(JList<?> list, Object value, int index,
-                                                      boolean isSelected, boolean cellHasFocus) {
-            super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-            Category c = (Category) value;
-            setText(c.getName() + "  (" + formatMoney(c.getRemaining()) + " / " + formatMoney(c.getBudgetAmount()) + ")");
-            return this;
-        }
+        return Money.format(amount, budget.getCurrency());
     }
 
     /** Shows amounts right-aligned with two decimals. */
+    // Not static, because it needs formatMoney(), which uses this window's budget
     private class AmountRenderer extends DefaultTableCellRenderer {
         AmountRenderer() {
             setHorizontalAlignment(SwingConstants.RIGHT);

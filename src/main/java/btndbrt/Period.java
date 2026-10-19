@@ -3,6 +3,7 @@ package btndbrt;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -45,6 +46,21 @@ public class Period {
     /** True if the date is between start and end (both included). */
     public boolean contains(LocalDate date) {
         return !date.isBefore(start) && !date.isAfter(end);
+    }
+
+    /** Number of days in the period, start and end included. */
+    public int getDayCount() {
+        return (int) ChronoUnit.DAYS.between(start, end) + 1;
+    }
+
+    /** Position of the date in the period: 0 for the start day, 1 for the next day, and so on. */
+    public int dayIndex(LocalDate date) {
+        return (int) ChronoUnit.DAYS.between(start, date);
+    }
+
+    /** Days left until the end of the period, counting the given day too. */
+    public int daysLeft(LocalDate date) {
+        return (int) ChronoUnit.DAYS.between(date, end) + 1;
     }
 
     public List<Category> getCategories() {

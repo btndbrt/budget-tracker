@@ -8,8 +8,15 @@ The budget is split into periods (usually months) with a start and end date, pic
 "New period" copies the categories and amounts of the latest period. Old periods stay stored as history
 and can be opened from the drop-down at the top.
 
+Below the period controls, today's date is shown with the day of the period, the days left and how much
+money is left per day. The **Charts** tab has a pie chart of spending by category and a line chart of the
+spending so far compared with an even pace that would use the budget exactly on the last day.
+
 Data is saved automatically after every change to `~/budget-tracker.txt` (plain text, tab-separated).
 The currency (e.g. `HUF`) is typed into the field at the bottom right and is shown after every amount.
+
+The look comes from [FlatLaf](https://www.formdev.com/flatlaf/), a modern look and feel for Swing.
+`mvn package` puts it inside the jar, so `java -jar` needs nothing else.
 
 ## Requirements
 
@@ -38,7 +45,15 @@ src/main/java/btndbrt/
 ├── BudgetFrame.java           # the main window and all button actions
 ├── CalendarDialog.java        # month calendar for picking a date
 ├── DateField.java             # date text field with a "Pick" button
+├── PieChartPanel.java         # spending by category
+├── LineChartPanel.java        # spending over time vs. even pace
+├── ChartColors.java           # chart colors
+├── Card.java                  # rounded white box with a title row
+├── StatTile.java              # summary tile (caption, big number, detail)
+├── CategoryCell.java          # category list row with a progress bar
+├── Money.java                 # formats amounts with the currency
 └── TransactionTableModel.java # connects a category's transactions to the JTable
 src/test/java/btndbrt/
-└── BudgetTest.java            # totals, periods and save/load tests
+├── BudgetTest.java            # totals, periods and save/load tests
+└── ChartTest.java             # chart calculations
 ```
