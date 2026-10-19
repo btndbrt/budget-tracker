@@ -13,7 +13,7 @@ money is left per day. The **Charts** tab has a pie chart of spending by categor
 spending so far compared with an even pace that would use the budget exactly on the last day.
 
 Data is saved automatically after every change to `~/budget-tracker.txt` (plain text, tab-separated).
-The currency (e.g. `HUF`) is typed into the field at the bottom right and is shown after every amount.
+The currency (e.g. `HUF`) is typed into the field at the top right and is shown after every amount.
 
 The look comes from [FlatLaf](https://www.formdev.com/flatlaf/), a modern look and feel for Swing.
 `mvn package` puts it inside the jar, so `java -jar` needs nothing else.
@@ -31,6 +31,22 @@ The look comes from [FlatLaf](https://www.formdev.com/flatlaf/), a modern look a
 | Run tests | `mvn test` |
 | Build the jar (also runs tests) | `mvn package` |
 | Run the built jar | `java -jar target/*.jar` |
+
+## Install it as an app (Linux)
+
+`packaging/build-linux.sh` builds a `.deb` package with `jpackage` (part of the JDK). The package
+brings its own Java runtime, so Java does not need to be installed to run it.
+
+```bash
+./packaging/build-linux.sh
+sudo apt install ./target/dist/budget-tracker_1.0_amd64.deb
+```
+
+After that, **Budget Tracker** is in the app menu under *Office*. It is installed to `/opt/budget-tracker`
+and keeps using the same data file, `~/budget-tracker.txt`.
+
+To update: raise `<version>` in `pom.xml`, build again and install the new `.deb`.
+To remove it: `sudo apt remove budget-tracker` (your data file stays).
 
 ## Project structure
 
@@ -56,4 +72,6 @@ src/main/java/btndbrt/
 src/test/java/btndbrt/
 ├── BudgetTest.java            # totals, periods and save/load tests
 └── ChartTest.java             # chart calculations
+src/main/resources/icon.png    # app and window icon
+packaging/build-linux.sh       # builds the installable .deb
 ```

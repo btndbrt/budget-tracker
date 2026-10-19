@@ -21,6 +21,7 @@ import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.DefaultListModel;
+import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -83,6 +84,10 @@ public class BudgetFrame extends JFrame {
 
     public BudgetFrame(Budget budget, Path dataFile) {
         super("Budget Tracker");
+        java.net.URL icon = getClass().getResource("/icon.png"); // from src/main/resources
+        if (icon != null) {
+            setIconImage(new ImageIcon(icon).getImage());
+        }
         this.budget = budget;
         this.dataFile = dataFile;
 
